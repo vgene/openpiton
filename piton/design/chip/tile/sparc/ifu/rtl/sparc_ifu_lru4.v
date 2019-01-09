@@ -44,8 +44,24 @@ module sparc_ifu_lru4(/*AUTOARG*/
                spec_vec;
 
    input       use_spec;
+
+   /*
+    * se, si - unimportant, set to 0
+    * recent_vec  - thread that is in the X stage (called E in some places)
+    * load_recent - instruction valid in X stage and no rollback & not killed
+    * req_vec     - which thread is non-spec ready
+    * spec_vec    - which thread is either spec or non-spec ready
+    * use_spec    - if none are non-spec ready, this is 1
+    */
+
+   /*
+    * Choosing threads based on:
+    *   samet - same thread in fetch stage
+    *   swt   - 
+    */
    
    output [3:0] grant_vec;
+   /* output reg [3:0] grant_vec; */
    
    output       so;
 
@@ -108,6 +124,7 @@ module sparc_ifu_lru4(/*AUTOARG*/
 		            sel_su2,
 		            sel_su3;
 
+   // used[n]_buf = used[n]
    dp_buffer #(4) use_buf0(.dout(used0_buf),
                       .in  (used0));
    dp_buffer #(4) use_buf1(.dout(used1_buf),
@@ -116,7 +133,10 @@ module sparc_ifu_lru4(/*AUTOARG*/
                       .in  (used2));
    dp_buffer #(4) use_buf3(.dout(used3_buf),
                       .in  (used3));
-   
+  /*
+  * load_recent comes from killing instruction in execute stage
+  * load_recent = 1 if instruction not killed (check this??)
+  */
 
    // determine lru order for next cycle
 //   assign hit0 = (used0_buf[0] & recent_vec[0] |
@@ -124,6 +144,7 @@ module sparc_ifu_lru4(/*AUTOARG*/
 //		              used0_buf[2] & recent_vec[2] |
 //		              used0_buf[3] & recent_vec[3]) & load_recent;
 
+   // if load_recent == 0, all equal 0
    assign hit1 = (used1_buf[0] & recent_vec[0] |
 		              used1_buf[1] & recent_vec[1] |
 		              used1_buf[2] & recent_vec[2] |
@@ -140,6 +161,7 @@ module sparc_ifu_lru4(/*AUTOARG*/
 		              used3_buf[3] & recent_vec[3]) & load_recent;
    
 
+   // if load_recent == 0, all equal first arg
    assign  used0_calc = load_recent          ?  recent_vec : used0_buf;
    assign  used1_calc = (hit3 | hit2 | hit1) ?  used0_buf  : used1_buf;
    assign  used2_calc = (hit3 | hit2)        ?  used1_buf  : used2_buf;
@@ -213,6 +235,8 @@ module sparc_ifu_lru4(/*AUTOARG*/
    assign  nosp_used2 = used2 & {4{~use_spec}};
    assign  nosp_used3 = used3 & {4{~use_spec}};
 
+   // decoder that selects based on which of the sel_su[n] is set
+   // only one of the signals may be set, otherwise return X
    mux4ds #(4) nsgnt_mux(.dout (nospec_grant),
 		                     .in0  (nosp_used0),
 		                     .in1  (nosp_used1),
@@ -253,6 +277,8 @@ module sparc_ifu_lru4(/*AUTOARG*/
    assign  sp_used2 = used2 & {4{use_spec}};
    assign  sp_used3 = used3 & {4{use_spec}};
    
+   // decoder that selects based on which of the sel_su[n] is set
+   // only one of the signals may be set, otherwise return X
    mux4ds #(4) sgnt_mux(.dout (spec_grant),
 		                  .in0  (sp_used0),
 		                  .in1  (sp_used1),
@@ -263,7 +289,16 @@ module sparc_ifu_lru4(/*AUTOARG*/
 		                  .sel2 (sel_su2),
 		                  .sel3 (sel_su3));
 
+   // how does this shit make sure spec_grant and nospec_grant don't overlap
+   // i.e. how does it guarantee only one bit is set
    assign  grant_vec = spec_grant | nospec_grant;
+
+   // need to assign grant_vec to something that works...
+   always @(posedge clk) begin
+     if ( reset ) begin
+       grant_vec <= 4'd1;
+     end
+   end
    
 
 endmodule // sparc_ifu_lru4
